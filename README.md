@@ -10,6 +10,9 @@
 <a href="https://github.com/assimon/epusdt/releases/tag/v0.0.1"><img src="https://img.shields.io/badge/version-v0.0.1-green" alt="version v0.0.1"></a>
 </p>
 
+## 改版介绍
+众所周知，交易所的 P2P、C2C 在某一刻的汇率并非固定，而是根据交易金额的大小而报价不同。
+本版本相比于官方版，增加了调用币安C2C查询实时汇率的功能。
 
 ## 项目简介
 `Epusdt`（全称：Easy Payment Usdt）是一个由`Go语言`编写的私有化部署`Usdt`支付中间件(`Trc20网络`)     
