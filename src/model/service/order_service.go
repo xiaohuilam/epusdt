@@ -18,6 +18,11 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+    "bytes"
+    "encoding/json"
+    "io/ioutil"
+    "net/http"
+    "strconv"
 )
 
 const (
@@ -36,7 +41,88 @@ func CreateTransaction(req *request.CreateTransactionRequest) (*response.CreateT
 	payAmount := math.MustParsePrecFloat64(req.Amount, 2)
 	// 按照汇率转化USDT
 	decimalPayAmount := decimal.NewFromFloat(payAmount)
-	decimalRate := decimal.NewFromFloat(config.GetUsdtRate())
+
+    url := "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+
+	// JSON payload
+    payload := map[string]interface{}{
+        "fiat":                "CNY",
+        "page":                1,
+        "rows":                10,
+        "transAmount":         10000,
+        "tradeType":           "SELL",
+        "asset":               "USDT",
+        "countries":           []interface{}{},
+        "proMerchantAds":      false,
+        "shieldMerchantAds":   false,
+        "filterType":          "all",
+        "periods":             []interface{}{},
+        "additionalKycVerifyFilter": 0,
+        "publisherType":       nil,
+        "payTypes":            []interface{}{},
+        "classifies":          []string{"mass", "profession"},
+    }
+
+    // Convert payload to JSON
+    jsonData, err := json.Marshal(payload)
+    if err != nil {
+        fmt.Println("Error marshaling JSON:", err)
+        return
+    }
+
+    // Create a new HTTP request
+    req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+    if err != nil {
+        fmt.Println("Error creating request:", err)
+        return
+    }
+
+    req.Header.Set("Content-Type", "application/json")
+
+    // Send the request
+    client := &http.Client{}
+    resp, err := client.Do(req)
+    if err != nil {
+        fmt.Println("Error sending request:", err)
+        return
+    }
+    defer resp.Body.Close()
+
+    // Read the response body
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        fmt.Println("Error reading response body:", err)
+        return
+    }
+
+    // Parse the response body
+    var response map[string]interface{}
+    err = json.Unmarshal(body, &response)
+    if err != nil {
+        fmt.Println("Error unmarshaling response:", err)
+        return
+    }
+
+    // Check if response.code equals "000000"
+    if response["code"] != "000000" {
+		return nil, response["message"]
+	}
+	// Access response.data[0].adv.price
+	data := response["data"].([]interface{})
+	if len(data) <= 0 {
+		return nil, "No data available"
+	}
+	adv := data[0].(map[string]interface{})
+	priceStr := adv["adv"].(map[string]interface{})["price"].(string)
+
+	// Convert price to float
+	price, err := strconv.ParseFloat(priceStr, 64)
+	if err != nil {
+		return nil, "Error converting price to float" + err
+	}
+
+	decimalRate := price
+
 	decimalUsdt := decimalPayAmount.Div(decimalRate)
 	// cny 是否可以满足最低支付金额
 	if decimalPayAmount.Cmp(decimal.NewFromFloat(CnyMinimumPaymentAmount)) == -1 {
