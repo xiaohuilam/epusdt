@@ -41,6 +41,7 @@ func CreateTransaction(req *request.CreateTransactionRequest) (*response.CreateT
 	payAmount := math.MustParsePrecFloat64(req.Amount, 2)
 	// 按照汇率转化USDT
 	decimalPayAmount := decimal.NewFromFloat(payAmount)
+	decimalRateDecimal := decimal.NewFromFloat(config.GetUsdtRate())
 
     url := "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
 
@@ -49,7 +50,7 @@ func CreateTransaction(req *request.CreateTransactionRequest) (*response.CreateT
         "fiat":                "CNY",
         "page":                1,
         "rows":                10,
-        "transAmount":         10000,
+        "transAmount":         req.Amount,
         "tradeType":           "SELL",
         "asset":               "USDT",
         "countries":           []interface{}{},
@@ -66,64 +67,57 @@ func CreateTransaction(req *request.CreateTransactionRequest) (*response.CreateT
     // Convert payload to JSON
     jsonData, err := json.Marshal(payload)
     if err != nil {
-        fmt.Println("Error marshaling JSON:", err)
-        return
+        return nil, fmt.Errorf("error marshaling JSON: %v", err)
     }
 
     // Create a new HTTP request
-    req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-    if err != nil {
-        fmt.Println("Error creating request:", err)
-        return
+    binanceP2pRequest, err2 := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+    if err2 != nil {
+        return nil, fmt.Errorf("error creating request: %w", err2)
     }
 
-    req.Header.Set("Content-Type", "application/json")
+    binanceP2pRequest.Header.Set("Content-Type", "application/json")
 
     // Send the request
     client := &http.Client{}
-    resp, err := client.Do(req)
+    binanceP2pResp, err := client.Do(binanceP2pRequest)
     if err != nil {
-        fmt.Println("Error sending request:", err)
-        return
+        return nil, fmt.Errorf("error sending request: %w", err)
     }
-    defer resp.Body.Close()
+    defer binanceP2pResp.Body.Close()
 
     // Read the response body
-    body, err := ioutil.ReadAll(resp.Body)
+    body, err := ioutil.ReadAll(binanceP2pResp.Body)
     if err != nil {
-        fmt.Println("Error reading response body:", err)
-        return
+        return nil, fmt.Errorf("error reading response body: %w", err)
     }
 
     // Parse the response body
-    var response map[string]interface{}
-    err = json.Unmarshal(body, &response)
+    var response2 map[string]interface{}
+    err = json.Unmarshal(body, &response2)
     if err != nil {
-        fmt.Println("Error unmarshaling response:", err)
-        return
+        return nil, fmt.Errorf("error unmarshaling response: %w", err)
     }
 
     // Check if response.code equals "000000"
-    if response["code"] != "000000" {
-		return nil, response["message"]
-	}
+    if response2["code"] != "000000" {
+        return nil, fmt.Errorf("%s", response2["message"])
+    }
 	// Access response.data[0].adv.price
-	data := response["data"].([]interface{})
-	if len(data) <= 0 {
-		return nil, "No data available"
+	data2 := response2["data"].([]interface{})
+	if len(data2) > 0 {
+		adv := data2[0].(map[string]interface{})
+		priceStr := adv["adv"].(map[string]interface{})["price"].(string)
+
+		// Convert price to float
+		price, err := strconv.ParseFloat(priceStr, 64)
+		if err == nil {
+			decimalRateDecimal = decimal.NewFromFloat(price)
+		}
 	}
-	adv := data[0].(map[string]interface{})
-	priceStr := adv["adv"].(map[string]interface{})["price"].(string)
 
-	// Convert price to float
-	price, err := strconv.ParseFloat(priceStr, 64)
-	if err != nil {
-		return nil, "Error converting price to float" + err
-	}
-
-	decimalRate := price
-
-	decimalUsdt := decimalPayAmount.Div(decimalRate)
+	// 现在可以安全地调用 Div 方法了，因为参数的类型是正确的
+	decimalUsdt := decimalPayAmount.Div(decimalRateDecimal)
 	// cny 是否可以满足最低支付金额
 	if decimalPayAmount.Cmp(decimal.NewFromFloat(CnyMinimumPaymentAmount)) == -1 {
 		return nil, constant.PayAmountErr
